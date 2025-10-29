@@ -156,4 +156,3 @@ Janhavi Chede
 
 🌐 GitHub Profile
 
-<p align="center"> Made with ❤️ using <b>Python</b> & <b>Streamlit</b> </p>
