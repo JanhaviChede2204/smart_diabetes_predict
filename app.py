@@ -17,8 +17,7 @@ scaler = joblib.load("models/scaler.pkl")
 conn = sqlite3.connect("diabetes_records.db", check_same_thread=False)
 c = conn.cursor()
 
-# Create table with username if it doesn’t exist
-# Create table with all required columns (if not exists)
+# Create table (if not exists)
 c.execute("""
 CREATE TABLE IF NOT EXISTS records (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -36,7 +35,6 @@ CREATE TABLE IF NOT EXISTS records (
 """)
 conn.commit()
 
-
 # ----------------------------
 # Streamlit UI
 # ----------------------------
@@ -50,14 +48,14 @@ choice = st.sidebar.selectbox("Navigation", menu)
 # Normal Medical Ranges
 # ----------------------------
 normal_ranges = {
-    "Pregnancies": "0 - 10",
-    "Glucose": "70 - 140 mg/dL",
-    "BloodPressure": "80 - 120 mmHg",
-    "SkinThickness": "10 - 50 mm",
-    "Insulin": "15 - 276 µU/mL",
-    "BMI": "18.5 - 24.9",
-    "DiabetesPedigreeFunction": "0.0 - 1.0",
-    "Age": "20 - 80 years"
+    "Pregnancies": (0, 10),
+    "Glucose": (70, 140),
+    "BloodPressure": (80, 120),
+    "SkinThickness": (10, 50),
+    "Insulin": (15, 276),
+    "BMI": (18.5, 24.9),
+    "DiabetesPedigreeFunction": (0.0, 1.0),
+    "Age": (20, 80)
 }
 
 # ----------------------------
@@ -85,6 +83,7 @@ if choice == "🏠 Predict Diabetes":
         if username.strip() == "":
             st.warning("Please enter a username.")
         else:
+            # Prepare input
             input_data = np.array([[Pregnancies, Glucose, BloodPressure, SkinThickness,
                                     Insulin, BMI, DiabetesPedigreeFunction, Age]])
             input_scaled = scaler.transform(input_data)
@@ -93,10 +92,32 @@ if choice == "🏠 Predict Diabetes":
             result_label = "🩸 Diabetes Detected" if prediction == 1 else "✅ No Diabetes Detected"
             st.subheader(f"Result: {result_label}")
 
-            # Show normal medical ranges
-            st.markdown("### 📊 Normal Medical Ranges")
-            for key, value in normal_ranges.items():
-                st.write(f"**{key}:** {value}")
+            # ----------------------------
+            # Check which values are out of range
+            # ----------------------------
+            st.markdown("### 📊 Normal Medical Ranges & Patient Status")
+            patient_values = {
+                "Pregnancies": Pregnancies,
+                "Glucose": Glucose,
+                "BloodPressure": BloodPressure,
+                "SkinThickness": SkinThickness,
+                "Insulin": Insulin,
+                "BMI": BMI,
+                "DiabetesPedigreeFunction": DiabetesPedigreeFunction,
+                "Age": Age
+            }
+
+            status_table = []
+            for key, (low, high) in normal_ranges.items():
+                value = patient_values[key]
+                if low <= value <= high:
+                    status = "✅ Normal"
+                else:
+                    status = "⚠️ Out of Range"
+                status_table.append((key, value, f"{low} - {high}", status))
+
+            df_status = pd.DataFrame(status_table, columns=["Parameter", "Value", "Normal Range", "Status"])
+            st.dataframe(df_status, hide_index=True, use_container_width=True)
 
             # Save record
             c.execute("""
@@ -106,7 +127,7 @@ if choice == "🏠 Predict Diabetes":
             """, (username, Pregnancies, Glucose, BloodPressure, SkinThickness, Insulin, BMI,
                   DiabetesPedigreeFunction, Age, result_label))
             conn.commit()
-            st.success("Record saved successfully!")
+            st.success("✅ Record saved successfully!")
 
 # ----------------------------
 # 📋 View Records Section
@@ -114,7 +135,7 @@ if choice == "🏠 Predict Diabetes":
 elif choice == "📋 View Records":
     st.header("Patient Records (Oldest First)")
     df = pd.read_sql_query("SELECT * FROM records ORDER BY id ASC", conn)
-    st.dataframe(df)
+    st.dataframe(df, use_container_width=True)
 
 # ----------------------------
 # 🗑️ Delete Record Section
@@ -130,7 +151,7 @@ elif choice == "🗑️ Delete Record":
         # Display selected record details
         selected_record = df[df["id"] == delete_id]
         st.subheader("🧾 Selected Record Details")
-        st.dataframe(selected_record)
+        st.dataframe(selected_record, use_container_width=True)
 
         if st.button("🗑️ Delete Selected Record"):
             c.execute("DELETE FROM records WHERE id = ?", (delete_id,))
