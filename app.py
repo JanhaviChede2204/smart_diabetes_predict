@@ -3,6 +3,8 @@ import pandas as pd
 import numpy as np
 import sqlite3
 import joblib
+import json
+import os
 from sklearn.preprocessing import StandardScaler
 
 # ----------------------------
@@ -17,7 +19,6 @@ scaler = joblib.load("models/scaler.pkl")
 conn = sqlite3.connect("diabetes_records.db", check_same_thread=False)
 c = conn.cursor()
 
-# Create table (if not exists)
 c.execute("""
 CREATE TABLE IF NOT EXISTS records (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -41,8 +42,23 @@ conn.commit()
 st.set_page_config(page_title="Smart Diabetes Predictor", layout="centered")
 st.title("🩺 Smart Diabetes Predictor")
 
-menu = ["🏠 Predict Diabetes", "📋 View Records", "🗑️ Delete Record"]
-choice = st.sidebar.selectbox("Navigation", menu)
+# ----------------------------
+# 📘 Model Info Display
+# ----------------------------
+tuning_info_path = "models/tuning_info.json"
+if os.path.exists(tuning_info_path):
+    with open(tuning_info_path, "r") as f:
+        tuning_info = json.load(f)
+
+    st.markdown("### 🧠 Model Summary")
+    st.write(f"**Best Model:** {tuning_info['best_model_name']}")
+    st.write(f"**Accuracy:** {tuning_info['best_accuracy']*100:.2f}%")
+
+    with st.expander("📊 View Tuned Hyperparameters"):
+        for param, val in tuning_info["best_params"].items():
+            st.write(f"**{param}:** {val}")
+else:
+    st.info("Model tuning info not found. Please re-run training.")
 
 # ----------------------------
 # Normal Medical Ranges
@@ -57,6 +73,9 @@ normal_ranges = {
     "DiabetesPedigreeFunction": (0.0, 1.0),
     "Age": (20, 80)
 }
+
+menu = ["🏠 Predict Diabetes", "📋 View Records", "🗑️ Delete Record"]
+choice = st.sidebar.selectbox("Navigation", menu)
 
 # ----------------------------
 # 🏠 Predict Diabetes Section
@@ -83,7 +102,6 @@ if choice == "🏠 Predict Diabetes":
         if username.strip() == "":
             st.warning("Please enter a username.")
         else:
-            # Prepare input
             input_data = np.array([[Pregnancies, Glucose, BloodPressure, SkinThickness,
                                     Insulin, BMI, DiabetesPedigreeFunction, Age]])
             input_scaled = scaler.transform(input_data)
@@ -92,32 +110,14 @@ if choice == "🏠 Predict Diabetes":
             result_label = "🩸 Diabetes Detected" if prediction == 1 else "✅ No Diabetes Detected"
             st.subheader(f"Result: {result_label}")
 
-            # ----------------------------
-            # Check which values are out of range
-            # ----------------------------
-            st.markdown("### 📊 Normal Medical Ranges & Patient Status")
-            patient_values = {
-                "Pregnancies": Pregnancies,
-                "Glucose": Glucose,
-                "BloodPressure": BloodPressure,
-                "SkinThickness": SkinThickness,
-                "Insulin": Insulin,
-                "BMI": BMI,
-                "DiabetesPedigreeFunction": DiabetesPedigreeFunction,
-                "Age": Age
-            }
-
-            status_table = []
+            # Show normal medical ranges and highlight out-of-range
+            st.markdown("### 📊 Health Parameter Check")
             for key, (low, high) in normal_ranges.items():
-                value = patient_values[key]
-                if low <= value <= high:
-                    status = "✅ Normal"
+                val = locals()[key]
+                if val < low or val > high:
+                    st.error(f"**{key}: {val} → Out of Range (Normal: {low}-{high})**")
                 else:
-                    status = "⚠️ Out of Range"
-                status_table.append((key, value, f"{low} - {high}", status))
-
-            df_status = pd.DataFrame(status_table, columns=["Parameter", "Value", "Normal Range", "Status"])
-            st.dataframe(df_status, hide_index=True, use_container_width=True)
+                    st.success(f"**{key}: {val} → Normal (Range: {low}-{high})**")
 
             # Save record
             c.execute("""
@@ -127,31 +127,28 @@ if choice == "🏠 Predict Diabetes":
             """, (username, Pregnancies, Glucose, BloodPressure, SkinThickness, Insulin, BMI,
                   DiabetesPedigreeFunction, Age, result_label))
             conn.commit()
-            st.success("✅ Record saved successfully!")
+            st.success("Record saved successfully!")
 
 # ----------------------------
-# 📋 View Records Section
+# 📋 View Records
 # ----------------------------
 elif choice == "📋 View Records":
     st.header("Patient Records (Oldest First)")
     df = pd.read_sql_query("SELECT * FROM records ORDER BY id ASC", conn)
-    st.dataframe(df, use_container_width=True)
+    st.dataframe(df)
 
 # ----------------------------
-# 🗑️ Delete Record Section
+# 🗑️ Delete Record
 # ----------------------------
 elif choice == "🗑️ Delete Record":
     st.header("Delete Record")
-
     df = pd.read_sql_query("SELECT * FROM records ORDER BY id ASC", conn)
 
     if len(df) > 0:
         delete_id = st.selectbox("Select Record ID to Delete", df["id"])
-
-        # Display selected record details
         selected_record = df[df["id"] == delete_id]
         st.subheader("🧾 Selected Record Details")
-        st.dataframe(selected_record, use_container_width=True)
+        st.dataframe(selected_record)
 
         if st.button("🗑️ Delete Selected Record"):
             c.execute("DELETE FROM records WHERE id = ?", (delete_id,))

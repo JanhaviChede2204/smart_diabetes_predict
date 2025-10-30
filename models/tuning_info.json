@@ -1,0 +1,8 @@
+{
+    "best_model_name": "KNN",
+    "best_accuracy": 0.9909747292418772,
+    "best_params": {
+        "n_neighbors": 5,
+        "weights": "distance"
+    }
+}
